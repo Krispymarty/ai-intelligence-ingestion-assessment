@@ -37,6 +37,7 @@ def public_url(value: object) -> str | None:
             return None
         if parts.port not in {None, 80, 443} or not domain(value):
             return None
+        HttpUrl(value)
     except ValueError:
         return None
     return value.strip()

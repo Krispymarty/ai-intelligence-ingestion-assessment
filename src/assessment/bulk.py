@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlsplit
 
+import httpx
 from defusedxml.ElementTree import fromstring
 from defusedxml.common import DefusedXmlException
 from pydantic import HttpUrl, ValidationError
@@ -42,6 +43,10 @@ APP_FEATURE = re.compile(
     r"\b(?:chatbot|text.to.image|text.to.speech|speech.to.text|image generat(?:or|ion)|"
     r"speech recognition|transcri(?:be|ption)|upscal(?:e|er|ing)|object detection|"
     r"voice clon(?:e|ing)|language translation|inference|ai assistant)\b", re.I,
+)
+VENDOR_CLAIM = re.compile(
+    r"\b(?:developed|created|built|published|offered|made|provided|operated|launched|model|assistant|platform|tool) "
+    r"by\s+([\w][\w.'’& -]{0,80})", re.I,
 )
 
 
@@ -257,11 +262,14 @@ class Bulk:
         parts = cursor.split(":") if cursor else []
         start = int(parts[1]) if len(parts) == 2 and version == parts[0] else 0
         company_domains: dict[str, set[str]] = defaultdict(set)
+        company_names: dict[str, set[str]] = defaultdict(set)
         for row in await self.yc():
             website = public_url(row.get("website"))
             raw_name = str(row.get("name") or "").strip()
             if website and raw_name and (host := domain(website)):
-                company_domains[host].add(self.resolver.resolve(raw_name, website, host).canonical_name or raw_name)
+                name = self.resolver.resolve(raw_name, website, host).canonical_name or raw_name
+                company_domains[host].add(name)
+                company_names[normalized_name(raw_name)].add(name)
         for _ in range(pages):
             page = Page()
             remaining = limit - self.store.count("PRODUCT")
@@ -279,21 +287,38 @@ class Bulk:
                     continue
                 host = domain(website) or ""
                 possible = self.resolver.domains.get(host, set()) | company_domains[host]
+                claim = VENDOR_CLAIM.search(str(row.get("description") or ""))
+                vendor_text = ""
+                if claim:
+                    words = claim[1].split()[:7]
+                    for size in range(len(words), 0, -1):
+                        vendor_text = " ".join(words[:size]).rstrip(".")
+                        key = normalized_name(vendor_text)
+                        cited = company_names[key] | self.resolver.aliases.get(key, set())
+                        if cited:
+                            possible |= cited
+                            break
+                    else:
+                        vendor_text = ""
                 if len(possible) != 1:
                     continue
                 company = next(iter(possible))
                 mapping = self.resolver.resolve(company, listing, host)
                 if mapping.reason == "no seed match":
-                    mapping = mapping.model_copy(update={"canonical_name": company, "reason": "YC website domain"})
+                    mapping = mapping.model_copy(update={
+                        "canonical_name": company, "reason": "catalog vendor claim" if vendor_text else "YC website domain",
+                    })
                 page.mappings.append(mapping)
                 evidence = {"attribution": attribution, "license": HARPD_LICENSE,
                             "source_snapshot": HARPD if source_domain == "harpd.com" else TOOLBUZZ,
-                            "company_domain": host, "ai_relevance": signal[0]}
+                            "catalog_listing": listing, "company_domain": host, "ai_relevance": signal[0]}
+                if vendor_text:
+                    evidence["catalog_vendor_claim"] = f"{claim[0][:claim.start(1) - claim.start()]}{vendor_text}" if claim else vendor_text
                 if availability := row.get("availability_evidence"):
                     evidence["availability"] = availability
                 page.records.append(Product(
                     id=f"product:{normalized_name(company)}/{normalized_name(title)}",
-                    source=Source(name=source, url=HttpUrl(listing)), collectedAt=self.fetch.now(),
+                    source=Source(name=source, url=HttpUrl(evidence["source_snapshot"])), collectedAt=self.fetch.now(),
                     evidence=evidence,
                     content=ProductContent(productName=title, startupName=company, productUrl=HttpUrl(website)),
                 ))
@@ -381,6 +406,10 @@ class Bulk:
         return rows
 
     async def _papers_page(self, ids, candidates, metadata):
+        await self.prefetch_stars([
+            min(candidates[pid], key=lambda repo: (not candidates[pid][repo], repo))
+            for pid in ids if pid in metadata
+        ])
         in_flight = {}
         records = []
         failures = []
@@ -413,6 +442,49 @@ class Bulk:
             elif row:
                 records.append(row)
         return records, failures
+
+    async def prefetch_stars(self, candidates: list[str]) -> int:
+        token = os.environ.get("GITHUB_TOKEN")
+        if not token or self.fetch.fixture is not None:
+            return 0
+        now = self.fetch.now()
+        pending = []
+        for slug in dict.fromkeys(candidates):
+            existing = self.store.repo(slug)
+            if not existing or now - datetime.fromisoformat(existing["observed_at"]) > timedelta(hours=24):
+                pending.append(slug)
+        updated = 0
+        for start in range(0, len(pending), 25):
+            slugs = pending[start:start + 25]
+            fields = []
+            for index, slug in enumerate(slugs):
+                owner, name = (json.dumps(part) for part in slug.split("/", 1))
+                fields.append(f"r{index}:repository(owner:{owner},name:{name}) {{ url isPrivate stargazerCount }}")
+            try:
+                response = await self.fetch.client.post(
+                    "https://api.github.com/graphql",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"query": "{" + " ".join(fields) + "}"},
+                )
+                if not response.is_success:
+                    break
+                data = response.json().get("data")
+            except (httpx.RequestError, ValueError):
+                break
+            if not isinstance(data, dict):
+                break
+            observed = self.fetch.now().isoformat()
+            for index, slug in enumerate(slugs):
+                item = data.get(f"r{index}")
+                if not isinstance(item, dict) or item.get("isPrivate") is not False:
+                    continue
+                stars, url = item.get("stargazerCount"), public_url(item.get("url"))
+                if type(stars) is int and stars >= 0 and url and repo_slug(url):
+                    self.store.save_repo(slug, {"url": canonical_url(url), "stars": stars, "observed_at": observed})
+                    updated += 1
+            if start + 25 < len(pending):
+                await asyncio.sleep(0.5)
+        return updated
 
     async def _stars(self, candidate: str) -> dict | None:
         cached = self.store.repo(candidate)
