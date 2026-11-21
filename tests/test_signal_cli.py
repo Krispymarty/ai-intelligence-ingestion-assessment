@@ -75,9 +75,9 @@ def test_job_feed_pagination_captures_full_descriptions(tmp_path):
         else {"json": [] if f.name == "Remote OK" else {"jobs": []}} for f in FEEDS
     }
     responses[feed.url] = {"json": {"data": [first_row], "links": {"next": second}}}
-    responses[second] = {
-        "json": {"data": [{**first_row, "url": "https://www.arbeitnow.com/job/two"}], "links": {"next": None}},
-    }
+    second_row = {**first_row, "url": "https://www.arbeitnow.com/job/two", "remote": None,
+                  "description": "<div>&lt;p&gt;This is a hybrid position.&lt;/p&gt;</div>"}
+    responses[second] = {"json": {"data": [second_row], "links": {"next": None}}}
     fixture = tmp_path / "fixture.json"
     fixture.write_text(json.dumps({"clock": clock, "responses": responses}), encoding="utf-8")
     database = tmp_path / "signals.sqlite"
@@ -88,5 +88,9 @@ def test_job_feed_pagination_captures_full_descriptions(tmp_path):
     report = json.loads((output / "run-report.json").read_text(encoding="utf-8"))
     source = next(source for source in report["sources"] if source["source"] == "Arbeitnow")
     assert source["pages"] == source["full_text"] == source["eligible"] == 2
+    with (output / "Jobs.csv").open(encoding="utf-8-sig", newline="") as stream:
+        assert {row["source.url"]: row["content.is_remote"] for row in csv.DictReader(stream)} == {
+            first_row["url"]: "true", second_row["url"]: "false",
+        }
     with sqlite3.connect(database) as conn:
-        assert conn.execute("SELECT body FROM full_text ORDER BY url").fetchall() == [(description,), (description,)]
+        assert conn.execute("SELECT body FROM full_text ORDER BY url").fetchall() == [(description,), ("This is a hybrid position.",)]

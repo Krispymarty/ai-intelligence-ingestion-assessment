@@ -66,10 +66,39 @@ class Entry:
 def clean(html: object) -> str:
     if not isinstance(html, str):
         return ""
-    soup = BeautifulSoup(html, "html.parser")
-    for node in soup.select("script, style, noscript"):
-        node.decompose()
-    return " ".join(soup.stripped_strings)
+    text = html
+    for _ in range(2):
+        soup = BeautifulSoup(text, "html.parser")
+        for node in soup.select("script, style, noscript"):
+            node.decompose()
+        text = " ".join(soup.stripped_strings)
+        if not re.search(r"</?(?:p|div|span|h[1-6]|li|script|style|section|strong)\b", text, re.I):
+            break
+    return text
+
+
+def work_policy(text: str) -> tuple[bool, str] | None:
+    # Only match direct statements about the job, not customer visits or office perks.
+    patterns = (
+        (r"\bthis (?:is a |role is |position is )(?:fully |100% )?remote(?: role| position| job)?\b", True),
+        (r"\bthis (?:is a |role is |position is )(?:hybrid|onsite|on-site|in-office)(?: role| position| job)?\b", False),
+        (r"\blocation-based hybrid policy:\s*[^.]{1,180}\b(?:staff|employees)\b[^.]{0,150}\bin one of our offices\b[^.]{0,80}", False),
+    )
+    matches = [(value, match[0]) for pattern, value in patterns if (match := re.search(pattern, text, re.I))]
+    return matches[0] if matches and len({value for value, _ in matches}) == 1 else None
+
+
+def job_family(title: str, text: str) -> tuple[Family, str] | None:
+    if match := classify_title(title):
+        return match
+    patterns = (
+        r"\bas an AI/ML intern, you will work alongside experienced engineers\b",
+        r"\bthe AI residency is a \d+-month builder role, not a research placement\b",
+    )
+    for pattern in patterns:
+        if match := re.search(pattern, text, re.I):
+            return "Engineering", match[0]
+    return None
 
 
 def extraction_input(kind: str, title: str, text: str) -> str:
@@ -375,6 +404,8 @@ class Monitor:
             return
         company = entry.company or None
         remote = entry.remote
+        if remote is None and (policy := work_policy(text)):
+            remote, evidence["is_remote"] = policy
         if company is None and (claim := claims.get("company")) and isinstance(claim.value, str):
             company = claim.value
         if remote is None and (claim := claims.get("is_remote")) and isinstance(claim.value, bool):
@@ -400,7 +431,7 @@ class Monitor:
                     family = label
                     evidence["role_family"] = claim.quote
                     break
-        if family is None and (match := classify_title(entry.title)):
+        if family is None and (match := job_family(entry.title, text)):
             family, evidence["role_family"] = match
         if family:
             evidence["role_input_sha256"] = input_hash

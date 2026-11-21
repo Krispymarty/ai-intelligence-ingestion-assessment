@@ -7,7 +7,7 @@ NonNegative = Annotated[int, Field(ge=0, strict=True)]
 Pricing = Literal["FREE", "FREEMIUM", "PAID", "ENTERPRISE"]
 Family = Literal[
     "Engineering", "Research", "Data", "Product", "Design", "Operations", "Sales",
-    "Marketing", "Finance", "Customer Success", "Content", "Project Management",
+    "Marketing", "Finance", "Customer Success", "Content", "Project Management", "Business Analysis",
 ]
 
 

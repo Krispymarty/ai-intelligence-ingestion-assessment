@@ -20,6 +20,7 @@ uv run --locked ai-assessment backfill --vertical all --limit 25
 uv run --locked ai-assessment backfill --vertical all --limit 1000 --max-pages 200
 uv run --locked ai-assessment backfill --vertical products --product-source pricing
 uv run --locked ai-assessment backfill --vertical products --product-source apple --max-pages 200
+uv run --locked ai-assessment backfill --vertical products --product-source model-apis
 uv run --locked ai-assessment monitor
 uv run --locked ai-assessment export --output exports
 ~~~
@@ -33,12 +34,14 @@ Feeds that explicitly include a full-content field are retained locally for elig
 | Vertical | Source and eligibility |
 |---|---|
 | Startups | [YC OSS snapshot](https://github.com/yc-oss/api), attributed to the original [YC directory](https://www.ycombinator.com/companies). Requires an AI signal from the source. Snapshot fingerprints protect resumed offsets from snapshot revisions. |
-| Products | [Apple App Store Search](https://performance-partners.apple.com/search-api) contributes AI apps with company sellers. [Hugging Face Spaces](https://huggingface.co/docs/hub/en/api), [Harpd AI Datasets](https://harpd.com/data/), and [AIToolBuzz](https://github.com/devadigax/aitoolbuzz-dataset) supply company-attributed web products. Harpd and AIToolBuzz are CC BY 4.0; AIToolBuzz activity reflects October 2025. [AGIPicks](https://agipicks.com/data/) contributes dated pricing under CC BY 4.0, joined by exact product name and vendor domain. The workbook includes only products with an evidenced pricing enum. Unpriced candidates are counted separately in the report. |
+| Products | [Apple App Store Search](https://performance-partners.apple.com/search-api) contributes AI apps with company sellers. [Global AI Product Index](https://globalaiproductindex.com/dataset/) supplies company and business-model labels with vendor citations. [TiorAI](https://github.com/tioraicom/ai-tools-dataset) requires a unique company-domain match, and [CostKite](https://costkite.com/data) supplies company names and documented plans. These three catalogs are CC BY 4.0. [Hugging Face Spaces](https://huggingface.co/docs/hub/en/api), [Harpd](https://harpd.com/data/), and [AIToolBuzz](https://github.com/devadigax/aitoolbuzz-dataset) supply candidates. [AGIPicks](https://agipicks.com/data/) supplies dated pricing evidence. The workbook only counts products with a supported pricing enum. |
 | Papers | [arXiv metadata](https://info.arxiv.org/help/bulk_data/index.html) joined to the [July 2025 Papers with Code archive](https://huggingface.co/datasets/pwc-archive/links-between-paper-and-code), distributed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Association evidence identifies the archive and repository. Stars are time-stamped observations from the [GitHub API](https://docs.github.com/en/rest/repos/repos#get-a-repository). The PDF and export report describe measured coverage separately from design targets. |
 | News | TechCrunch AI, The Verge AI, Ars Technica AI, MIT Technology Review AI, and WIRED. Reads the exposed feed window. Exports attributed headlines, links and short feed excerpts. |
 | Jobs | Remote OK, Jobicy, [Mo AIJobs](https://www.moaijobs.com/rss), We Work Remotely, and Arbeitnow. Mo AIJobs supplies a dated feed with full descriptions, replacing Himalayas whose public pubDate is an update time. Only publication timestamps are eligible. Full descriptions are retained locally. |
 
 Access failures and source-side restrictions are recorded. Review attribution and reuse conditions before making the workbook public. To replace a failing source, replace the relevant Feed definition with a documented endpoint and update or add its adapter when its response format differs.
+
+The reviewed workbook includes production model APIs. The explicit [OpenRouter catalog](https://openrouter.ai/docs/api/api-reference/models/get-models) step groups paid and free routes for the same stable model ID and omits preview and dated snapshot IDs. The model author and the scope of OpenRouter's hosted price are recorded separately. The report counts these API offers separately from the other AI products.
 
 The Harpd website previously returned HTTP 403 from the collection environment. Its publisher distributes the same catalog through an explicitly published CC BY 4.0 GitHub export. The product adapter uses that export and retains the listing URL and attribution. A challenged page is recorded as inaccessible. Authorized JavaScript-rendered pages can be handled with an approved browser adapter or a publisher-provided feed. Respect authentication, robots rules, and publisher limits.
 
@@ -72,6 +75,6 @@ For submission, run the last monitor near the deadline, export from the live dat
 To refresh the reviewed workbook in the original workspace, use its existing state/live.sqlite database. A fresh clone starts with an empty local database.
 
 ~~~powershell
-uv run --locked ai-assessment --db state/live.sqlite monitor --max-pages 30 --full-text-host techcrunch.com --llm-host moaijobs.com
+uv run --locked ai-assessment --db state/live.sqlite monitor --max-pages 40 --full-text-host techcrunch.com --llm-host moaijobs.com
 uv run --locked ai-assessment --db state/live.sqlite export --output exports
 ~~~

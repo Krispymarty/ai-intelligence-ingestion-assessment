@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .bulk import KINDS, Bulk
+from .catalog import collect_catalog
 from .export import export
 from .llm import Extractor, configured_providers
+from .model_offers import collect_model_offers
 from .identity import Resolver
 from .network import FetchError, Fetcher
 from .products import collect_apps, enrich_pricing
@@ -43,6 +45,12 @@ async def ingest(args: argparse.Namespace, store: Store) -> int:
                 raise ValueError("--product-source requires --vertical products")
             if args.product_source is None:
                 results = await Bulk(fetch, store, resolver).run(verticals, args.limit, args.max_pages, args.paper_links)
+            for source, name in (("global", "Global AI Product Index"), ("tiorai", "TiorAI"), ("costkite", "CostKite")):
+                if "products" in verticals and args.product_source in {None, source}:
+                    try:
+                        results.append(await collect_catalog(fetch, store, resolver, args.limit, source))
+                    except (FetchError, ValueError) as exc:
+                        results.append(SourceResult(source=name, status="failed", details=[str(exc)]))
             if "products" in verticals and args.product_source in {None, "pricing"}:
                 try:
                     results.append(await enrich_pricing(fetch, store, resolver, args.limit))
@@ -52,6 +60,8 @@ async def ingest(args: argparse.Namespace, store: Store) -> int:
                 providers = configured_providers() if args.llm_app_store and fetch.fixture is None else []
                 engine = Extractor(fetch.client, providers, args.llm_budget) if providers else None
                 results.append(await collect_apps(fetch, store, resolver, args.limit, args.max_pages, engine))
+            if "products" in verticals and args.product_source == "model-apis":
+                results.append(await collect_model_offers(fetch, store, resolver, args.limit))
             as_of = fetch.now()
         else:
             from .monitor import Monitor
@@ -82,12 +92,13 @@ def main() -> int:
     bulk.add_argument("--limit", type=positive, default=1000, help="target total unique records per vertical")
     bulk.add_argument("--max-pages", type=positive, default=100)
     bulk.add_argument("--paper-links", type=Path, help="local Papers with Code archive JSON or JSON.gz")
-    bulk.add_argument("--product-source", choices=["apple", "pricing"], help="run a single product source")
+    bulk.add_argument("--product-source", choices=["apple", "pricing", "global", "tiorai", "costkite", "model-apis"],
+                      help="run a single product source")
     bulk.add_argument("--llm-app-store", action="store_true", help="send permitted app descriptions to the configured LLMs")
     bulk.add_argument("--llm-budget", type=int, choices=range(0, 31), metavar="0..30", default=10)
     monitor = commands.add_parser("monitor")
     monitor.add_argument("--as-of", type=cutoff)
-    monitor.add_argument("--max-pages", type=positive, default=12)
+    monitor.add_argument("--max-pages", type=positive, default=40)
     monitor.add_argument("--llm-budget", type=int, choices=range(0, 31), metavar="0..30", default=10)
     monitor.add_argument("--full-text-host", action="append", default=[], help="allowlisted host for permitted full-text extraction")
     monitor.add_argument("--llm-host", action="append", default=[], help="allowlisted host whose text may be sent to configured LLMs")

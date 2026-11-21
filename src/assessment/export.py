@@ -46,6 +46,7 @@ def export(store: Store, output: Path):
     counts: dict[str, int] = {}
     coverage: dict[str, dict[str, int]] = {}
     unresolved_products: Counter[str] = Counter()
+    product_types: Counter[str] = Counter()
     for kind, (title, fields) in TABS.items():
         populated: Counter[str] = Counter({k: 0 for k in fields})
         count = 0
@@ -57,6 +58,8 @@ def export(store: Store, output: Path):
                 if isinstance(record, Product) and not (record.content.pricingModel and record.evidence.get("pricing")):
                     unresolved_products[record.source.name] += 1
                     continue
+                if isinstance(record, Product):
+                    product_types.update([record.evidence.get("offer_kind", "other_ai_products")])
                 if isinstance(record, (Job, News)) and (
                     as_of is None or not as_of - timedelta(hours=24) <= record.content.date <= as_of
                 ):
@@ -80,6 +83,7 @@ def export(store: Store, output: Path):
         "targets": TARGETS, "shortfalls": {k: max(0, v - counts[k]) for k, v in TARGETS.items()},
         "field_coverage": coverage, "sources": store.results(), "unverified_publication": store.discoveries(),
         "unresolved_product_pricing": {"count": sum(unresolved_products.values()), "by_source": dict(unresolved_products)},
+        "product_offer_types": dict(product_types),
     }
     current = [r for r in report["sources"] if r["command"] == "monitor" and r["as_of"] == cutoff]
     report["monitor_coverage"] = {
