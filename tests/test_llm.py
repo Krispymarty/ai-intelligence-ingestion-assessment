@@ -100,3 +100,23 @@ def test_fabricated_quote_falls_back():
     (result, events), _ = run(respond, "AI Research Scientist")
     assert result and result.quote == "AI Research Scientist"
     assert events == ["Groq: invalid or unsupported output", "Cerebras: accepted"]
+
+
+def test_pricing_fallback_rejects_quote_that_omits_negation():
+    def respond(request):
+        paid = request.url.host == "groq.example"
+        claim = {
+            "field": "pricingModel", "value": "PAID" if paid else "FREEMIUM",
+            "quote": "paid subscription required" if paid else "a free plan plus a paid plan",
+        }
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"claims": [claim]})}}]})
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond), trust_env=False) as client:
+            return await Extractor(client, PROVIDERS, 4).extract_fields(
+                "PRODUCT", "No paid subscription required. Choose a free plan plus a paid plan for optional features.",
+            )
+
+    claims, events = asyncio.run(scenario())
+    assert [(claim.field, claim.value) for claim in claims] == [("pricingModel", "FREEMIUM")]
+    assert events == ["Groq: invalid or unsupported output", "Cerebras: accepted"]

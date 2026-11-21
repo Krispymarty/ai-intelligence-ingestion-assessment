@@ -42,7 +42,7 @@ class Fetcher:
         self.host_locks = defaultdict(asyncio.Lock)
         self.next_request: dict[str, float] = {}
         self.pause_until: dict[str, float] = {}
-        self.interval = {"export.arxiv.org": 3.1, "api.github.com": 0.5}
+        self.interval = {"export.arxiv.org": 3.1, "api.github.com": 0.5, "itunes.apple.com": 4.0, "www.arbeitnow.com": 2.5}
 
     def now(self) -> datetime:
         if self.fixture and self.fixture.get("clock"):

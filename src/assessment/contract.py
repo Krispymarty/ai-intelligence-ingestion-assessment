@@ -5,7 +5,10 @@ from pydantic import AwareDatetime, BaseModel, Field, HttpUrl, TypeAdapter
 
 NonNegative = Annotated[int, Field(ge=0, strict=True)]
 Pricing = Literal["FREE", "FREEMIUM", "PAID", "ENTERPRISE"]
-Family = Literal["Engineering", "Research", "Data", "Product", "Design", "Operations", "Sales"]
+Family = Literal[
+    "Engineering", "Research", "Data", "Product", "Design", "Operations", "Sales",
+    "Marketing", "Finance", "Customer Success", "Content", "Project Management",
+]
 
 
 class Source(BaseModel):
@@ -99,6 +102,7 @@ class Mapping(BaseModel):
     raw_name: str
     canonical_name: str | None = None
     reason: str
+    entity_type: Literal["COMPANY", "PRODUCT"] = "COMPANY"
 
 
 class SourceResult(BaseModel):
@@ -107,6 +111,11 @@ class SourceResult(BaseModel):
     fetched: int = 0
     eligible: int = 0
     undated: int = 0
+    pages: int = 0
+    full_text: int = 0
+    first_seen: int = 0
+    content_changed: int = 0
+    llm_fields: int = 0
     details: list[str] = Field(default_factory=list)
 
 
@@ -115,3 +124,4 @@ class Page(BaseModel):
     mappings: list[Mapping] = Field(default_factory=list)
     undated: dict[str, datetime] = Field(default_factory=dict)
     full_text: dict[str, str] = Field(default_factory=dict)
+    observations: dict[str, tuple[datetime, str]] = Field(default_factory=dict)

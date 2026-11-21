@@ -17,10 +17,11 @@ from defusedxml.ElementTree import fromstring
 from defusedxml.common import DefusedXmlException
 from pydantic import HttpUrl, ValidationError
 
-from .contract import Page, Paper, PaperContent, Product, ProductContent, Source
+from .contract import Mapping, Page, Paper, PaperContent, Product, ProductContent, Source
 from .contract import SourceResult, Startup, StartupContent, StartupData
 from .identity import AI, Resolver, canonical_url, domain, normalized_name, public_url
 from .network import FetchError, Fetcher
+from .products import product_id, product_name
 from .store import Store
 
 YC = "https://yc-oss.github.io/api/companies/all.json"
@@ -135,7 +136,7 @@ class Bulk:
         source = "Hugging Face Spaces"
         result = SourceResult(source=source, status="ok")
         url = self.store.cursor(source) or HF
-        if url == "done" or self.store.count("PRODUCT") >= limit:
+        if url == "done" or self.store.product_candidates(source) >= limit:
             return result
         companies = await self.yc()
         names = defaultdict(set)
@@ -170,9 +171,9 @@ class Bulk:
                         failures.append(str(exc))
                     continue
                 if record:
-                    product, mapping = record
+                    product, mapping, app_mapping = record
                     page.records.append(product)
-                    page.mappings.append(mapping)
+                    page.mappings.extend([mapping, app_mapping])
             next_url = response.links.get("next", {}).get("url")
             if next_url:
                 parsed = urlsplit(next_url)
@@ -186,7 +187,7 @@ class Bulk:
                 result.status = "partial"
                 result.details = failures[:8]
                 break
-            if not next_url or self.store.count("PRODUCT") >= limit:
+            if not next_url or self.store.product_candidates(source) >= limit:
                 break
             url = next_url
         return result
@@ -218,19 +219,22 @@ class Bulk:
         company = mapping.canonical_name or next(iter(names[normalized_name(publisher)]), None)
         if not company or not normalized_name(title):
             return None
+        canonical = product_name(company, title)
+        app_mapping = Mapping(source_url=HttpUrl(url), raw_name=title, canonical_name=canonical,
+                              entity_type="PRODUCT", reason="publisher-backed product name")
         product = Product(
-            id=f"product:{normalized_name(company)}/{normalized_name(title)}",
+            id=product_id(company, canonical),
             source=Source(name="Hugging Face Spaces", url=HttpUrl(url)), collectedAt=self.fetch.now(),
             evidence={"publisher_profile": org_url, "publisher": publisher, "runtime": payload["stage"],
                       "ai_relevance": evidence[0] if evidence else str(model_tags[0])},
-            content=ProductContent(productName=title, startupName=company, productUrl=HttpUrl(url)),
+            content=ProductContent(productName=canonical, startupName=company, productUrl=HttpUrl(url)),
         )
-        return product, mapping
+        return product, mapping, app_mapping
 
     async def catalog_products(self, limit: int, pages: int) -> SourceResult:
         source = "Harpd AI Datasets"
         result = SourceResult(source=source, status="ok")
-        if self.store.count("PRODUCT") >= limit:
+        if self.store.product_candidates(source) >= limit:
             return result
         catalog = (await self.fetch.get(HARPD)).json()
         rows = catalog.get("products")
@@ -240,7 +244,7 @@ class Bulk:
 
     async def toolbuzz_products(self, limit: int, pages: int) -> SourceResult:
         result = SourceResult(source="AIToolBuzz", status="ok")
-        if self.store.count("PRODUCT") >= limit:
+        if self.store.product_candidates(result.source) >= limit:
             return result
         response = await self.fetch.get(TOOLBUZZ, max_bytes=30_000_000)
         reader = csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))
@@ -272,7 +276,7 @@ class Bulk:
                 company_names[normalized_name(raw_name)].add(name)
         for _ in range(pages):
             page = Page()
-            remaining = limit - self.store.count("PRODUCT")
+            remaining = limit - self.store.product_candidates(source)
             end = min(start + 100, len(rows))
             for index in range(start, end):
                 row = rows[index]
@@ -309,6 +313,11 @@ class Bulk:
                         "canonical_name": company, "reason": "catalog vendor claim" if vendor_text else "YC website domain",
                     })
                 page.mappings.append(mapping)
+                canonical = product_name(company, title)
+                page.mappings.append(Mapping(
+                    source_url=HttpUrl(listing), raw_name=title, canonical_name=canonical,
+                    entity_type="PRODUCT", reason="catalog-backed product name",
+                ))
                 evidence = {"attribution": attribution, "license": HARPD_LICENSE,
                             "source_snapshot": HARPD if source_domain == "harpd.com" else TOOLBUZZ,
                             "catalog_listing": listing, "company_domain": host, "ai_relevance": signal[0]}
@@ -317,17 +326,17 @@ class Bulk:
                 if availability := row.get("availability_evidence"):
                     evidence["availability"] = availability
                 page.records.append(Product(
-                    id=f"product:{normalized_name(company)}/{normalized_name(title)}",
+                    id=product_id(company, canonical),
                     source=Source(name=source, url=HttpUrl(evidence["source_snapshot"])), collectedAt=self.fetch.now(),
                     evidence=evidence,
-                    content=ProductContent(productName=title, startupName=company, productUrl=HttpUrl(website)),
+                    content=ProductContent(productName=canonical, startupName=company, productUrl=HttpUrl(website)),
                 ))
                 if len(page.records) >= remaining:
                     end = index + 1
                     break
             self.store.commit_page(source, f"{version}:{end}", page)
             result.eligible += len(page.records)
-            if end == len(rows) or self.store.count("PRODUCT") >= limit:
+            if end == len(rows) or self.store.product_candidates(source) >= limit:
                 break
             start = end
         return result
@@ -533,8 +542,8 @@ class Bulk:
         names = {"startups": "YC Startup Directory", "products": "Hugging Face Spaces",
                  "papers": "arXiv + Papers with Code + GitHub"}
         results = list(await asyncio.gather(*(collect(v, actions[v], names[v]) for v in verticals)))
-        if "products" in verticals and self.store.count("PRODUCT") < limit:
+        if "products" in verticals and self.store.priced_products() < limit:
             results.append(await collect("products", self.catalog_products, "Harpd AI Datasets"))
-        if "products" in verticals and self.store.count("PRODUCT") < limit:
+        if "products" in verticals and self.store.priced_products() < limit:
             results.append(await collect("products", self.toolbuzz_products, "AIToolBuzz"))
         return results
