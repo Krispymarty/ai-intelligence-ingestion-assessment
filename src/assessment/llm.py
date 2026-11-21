@@ -184,6 +184,7 @@ class Extractor:
             "Each item has field, value and a verbatim quote of at most 240 characters. "
             "Use true or false for is_remote, exact text for company and excerpt. "
             "Include field labels such as Company: or Location: in the quote when present, but exclude them from the value. "
+            "For role_family, quote the role title when it states the family. "
             "Use the same text for the NEWS excerpt value and its quote. Use "
             f"one of {', '.join(FAMILY)} for role_family, and FREE/FREEMIUM/PAID/ENTERPRISE for pricingModel. "
             "Omit fields lacking evidence. A free download or trial does not establish a free plan."
@@ -320,11 +321,12 @@ def field_supported(claim: FieldClaim, title: str, chunk: str) -> bool:
             r"(?:company|employer)\s*:\s*" + re.escape(value.strip()), quote.strip(), re.I,
         ))
     if claim.field == "is_remote":
+        label = r"(?:workplace|work location|location)\s*:\s*"
+        statement = r"(?:this (?:job|role|position) is|the (?:job|role|position) is|work is)\s+"
         if value is True:
-            return bool(re.fullmatch(r"(?:workplace|work location|location)\s*:\s*(?:fully )?remote", quote.strip(), re.I))
-        return value is False and bool(re.fullmatch(
-            r"(?:workplace|work location|location)\s*:\s*(?:onsite|on-site|in office)", quote.strip(), re.I,
-        ))
+            return bool(re.fullmatch(rf"(?:{label}|{statement})(?:fully )?remote[.]?", quote.strip(), re.I))
+        return value is False and bool(re.fullmatch(rf"(?:{label}|{statement})(?:onsite|on-site|in office)[.]?",
+                                                    quote.strip(), re.I))
     if claim.field == "role_family":
         return isinstance(value, str) and role_supported(value, quote, title)
     pattern = PRICING_QUOTES.get(value) if isinstance(value, str) else None

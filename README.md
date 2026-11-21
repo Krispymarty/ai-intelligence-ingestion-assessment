@@ -68,3 +68,10 @@ uv run --locked python scripts/build_architecture.py
 Fixtures exercise the CLI and provider HTTP interface. Use --fixture with a separate --db to keep test data isolated. Export includes a run report with mode, target counts, field coverage, source errors, and uncertain publication timestamps. Formula-like source values are escaped in the CSV and written as text in the workbook.
 
 For submission, run the last monitor near the deadline, export from the live database, and import AI Assessment.xlsx into a Google Sheet. Verify the reader link in a signed-out browser. Push the source and PDF to GitHub. Review the actual counts and disclose any quota, source, or coverage shortfall when sending the two links through the supplied submission form. Keep local state and credentials out of Git. After submission, tag the submitted version and add scheduling, health metrics, and a full-size replay benchmark in the portfolio phase.
+
+To refresh the reviewed workbook in the original workspace, use its existing state/live.sqlite database. A fresh clone starts with an empty local database.
+
+~~~powershell
+uv run --locked ai-assessment --db state/live.sqlite monitor --max-pages 30 --full-text-host techcrunch.com --llm-host moaijobs.com
+uv run --locked ai-assessment --db state/live.sqlite export --output exports
+~~~

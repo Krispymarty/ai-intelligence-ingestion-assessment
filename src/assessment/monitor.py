@@ -22,6 +22,7 @@ from .network import FetchError, Fetcher
 from .store import Store
 
 RELATIVE_DATE = re.compile(r"(\d+)\s+(minute|hour|day)s?\s+ago", re.I)
+JOB_POLICY = re.compile(r"\b(?:(?:company|employer|workplace|location)\s*:|(?:fully remote|on.site|in office|hybrid)\b)", re.I)
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,16 @@ def clean(html: object) -> str:
     for node in soup.select("script, style, noscript"):
         node.decompose()
     return " ".join(soup.stripped_strings)
+
+
+def extraction_input(kind: str, title: str, text: str) -> str:
+    if kind != "jobs":
+        return f"{title}\n\n{text}"
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+    relevant = [s for s in sentences if len(s) <= 400 and JOB_POLICY.search(s)][:4]
+    if not relevant:
+        relevant = [text[:900]]
+    return "\n".join([title, "", *relevant])
 
 
 def published_at(value: object, seen: datetime) -> datetime | None:
@@ -338,7 +349,8 @@ class Monitor:
                 evidence.update({k: v for k, v in previous.evidence.items() if k.startswith("llm_")})
             else:
                 extracted, attempts = await extract_once(self.store, self.extractor,
-                    "NEWS" if feed.kind == "news" else "JOB", input_text, title=entry.title,
+                    "NEWS" if feed.kind == "news" else "JOB",
+                    extraction_input(feed.kind, entry.title, text), title=entry.title,
                 )
                 claims = {claim.field: claim for claim in extracted}
                 result.llm_fields += len(claims)
