@@ -1,0 +1,11 @@
+.venv/
+.uv-cache/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+state/
+exports/
+dist/
+*.egg-info/
+/AI Engineer_Nov 2026.md

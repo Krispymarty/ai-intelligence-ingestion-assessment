@@ -1,0 +1,28 @@
+[project]
+name = "ai-assessment"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["httpx>=0.27,<0.29", "pydantic>=2.10,<3", "defusedxml>=0.7,<1", "beautifulsoup4>=4.13,<5", "trafilatura>=2,<3", "openpyxl>=3.1,<4"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "pyright>=1.1,<2", "reportlab>=4,<5", "pypdf>=6,<7"]
+
+[project.scripts]
+ai-assessment = "assessment.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/assessment"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/scripts", "/README.md", "/DECISIONS.md", "/pyproject.toml", "/uv.lock", "/architecture.pdf"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
