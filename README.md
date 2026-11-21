@@ -61,10 +61,13 @@ The queue uses stable task keys, renewable leases and fenced commits. Repeating 
 
 ## Review and handoff
 
+Install the PostgreSQL extra for the type check, which includes the PostgreSQL adapter.
+
 ~~~powershell
+uv sync --locked --python 3.13 --extra postgres
 uv run --locked ruff check src tests scripts
-uv run --locked pyright
-uv run --locked pytest
+uv run --locked --extra postgres pyright
+uv run --locked --extra postgres pytest
 uv run --locked python scripts/build_architecture.py
 ~~~
 
@@ -75,6 +78,7 @@ For submission, run the last monitor near the deadline, export from the live dat
 To refresh the reviewed workbook in the original workspace, use its existing state/live.sqlite database. A fresh clone starts with an empty local database.
 
 ~~~powershell
-uv run --locked ai-assessment --db state/live.sqlite monitor --max-pages 40 --full-text-host techcrunch.com --llm-host moaijobs.com
-uv run --locked ai-assessment --db state/live.sqlite export --output exports
+$submissionCutoff = [DateTimeOffset]::UtcNow.ToString("o")
+uv run --locked ai-assessment --db state/live.sqlite monitor --as-of $submissionCutoff --max-pages 40 --full-text-host techcrunch.com --llm-host moaijobs.com
+uv run --locked ai-assessment --db state/live.sqlite export --output exports/submission
 ~~~
